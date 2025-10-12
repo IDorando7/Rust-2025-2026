@@ -1,0 +1,5 @@
+debug/
+target/
+*.pdb
+**/*.rs.bk
+vscode/
