@@ -1,0 +1,10 @@
+ping
+count a b c
+times
+times
+TIMES
+echo Hello world!
+echo This is a test of the terminal emulator
+unknowncmd test
+stoP
+stop
