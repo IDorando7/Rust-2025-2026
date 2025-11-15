@@ -1,5 +1,6 @@
 debug/
 target/
+.idea/
 *.pdb
 **/*.rs.bk
 vscode/

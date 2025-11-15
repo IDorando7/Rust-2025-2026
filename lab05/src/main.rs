@@ -44,8 +44,15 @@ fn main() -> io::Result<()> {
 
     let mut students: Vec<Student> = Vec::new();
 
-    for line in reader.lines() {
-        let line = line?;
+    for (i, line_res) in reader.lines().enumerate() {
+        let line = match line_res {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Error reading line {} in {}: {}", i + 1, path, e);
+                continue; 
+            }
+        };
+
         let parts: Vec<&str> = line.trim().split(',').collect();
 
         if parts.len() == 3 {
@@ -54,6 +61,12 @@ fn main() -> io::Result<()> {
             let age: u32 = parts[2].parse().unwrap_or(0);
 
             students.push(Student { name, phone, age });
+        } else {
+            eprintln!(
+                "Line {} skipped: invalid format (expected 3 comma-separated fields) → '{}'",
+                i + 1,
+                line
+            );
         }
     }
 
@@ -81,8 +94,15 @@ fn main() -> io::Result<()> {
 
     let mut students_json: Vec<Student> = Vec::new();
 
-    for line in reader.lines() {
-        let line = line?;
+    for (i, line_res) in reader.lines().enumerate() {
+        let line = match line_res {
+            Ok(l) => l,
+            Err(e) => {
+                eprintln!("Error reading line {} in {}: {}", i + 1, json_path, e);
+                continue; 
+            }
+        };
+
         let line = line.trim();
         if line.is_empty() {
             continue;
@@ -90,7 +110,7 @@ fn main() -> io::Result<()> {
 
         match serde_json::from_str::<Student>(line) {
             Ok(st) => students_json.push(st),
-            Err(e) => eprintln!(" Skipping malformed JSON line:\n  {line}\n  → {e}"),
+            Err(e) => eprintln!("Line {} malformed JSON: {}\n  {}", i + 1, e, line),
         }
     }
 
