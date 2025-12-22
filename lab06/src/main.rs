@@ -139,7 +139,7 @@ fn main() {
     };
 
     let mut terminal = Terminal::new();
-    terminal.register(Box::new(PingCommand));
+            terminal.register(Box::new(PingCommand));
     terminal.register(Box::new(CountCommand));
     terminal.register(Box::new(TimesCommand { count: 0 }));
     terminal.register(Box::new(EchoCommand));
