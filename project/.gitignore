@@ -16,6 +16,8 @@
 !crates/shared/
 !crates/shared/**
 
+!crates/server/
+!crates/server/src/
 !crates/server/src/net/
 !crates/server/src/net/**
 
