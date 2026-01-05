@@ -17,6 +17,10 @@
 !crates/shared/**
 
 !crates/server/
+!crates/server/**
+
+!crates/client/
+!crates/client/**
 
 !docs/
 !docs/**

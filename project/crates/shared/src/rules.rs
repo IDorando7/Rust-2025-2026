@@ -43,8 +43,14 @@ pub fn apply_action(mut s: GameState, a: Action) -> Result<GameState, GameError>
             if at == s.mouse {
                 return Err(GameError::BlockMouse);
             }
+
             s.blocks.insert(at);
-            s.turn = Turn::Mouse;
+
+            if !mouse_has_legal_moves(&s) {
+                s.status = GameStatus::TrapperWon;
+            } else {
+                s.turn = Turn::Mouse;
+            }
         }
         Action::MoveMouse { to } => {
             if s.turn != Turn::Mouse {

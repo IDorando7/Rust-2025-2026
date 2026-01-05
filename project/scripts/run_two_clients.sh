@@ -9,6 +9,7 @@ export DISPLAY=:0
 export WINIT_UNIX_BACKEND=x11
 unset WAYLAND_DISPLAY
 
-echo "[run_client] Root: $ROOT"
-echo "[run_client] Starting client (WINIT_UNIX_BACKEND=$WINIT_UNIX_BACKEND)..."
-cargo run -p client
+cargo run -p client &
+sleep 0.5
+cargo run -p client &
+wait

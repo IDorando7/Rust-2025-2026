@@ -20,7 +20,10 @@ impl RoomManager {
     }
 
     pub async fn list_rooms(&self) -> Vec<RoomInfo> {
-        let rooms = self.rooms.read().await;
+        let mut rooms = self.rooms.write().await;
+
+        rooms.retain(|_, h| !h.cmd_tx.is_closed());
+
         rooms
             .values()
             .map(|h| {

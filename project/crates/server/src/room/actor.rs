@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot, watch};
 use uuid::Uuid;
 
+use shared::ai::choose_mouse_move;
 use shared::hex::inside_board;
 use shared::net::ServerMsg;
 use shared::rules::apply_action;
@@ -108,6 +109,34 @@ async fn room_loop(
         }
     };
 
+    let run_bot_if_needed = |mut cur: GameState| -> GameState {
+        loop {
+            if !vs_bot || cur.status != GameStatus::Running || cur.turn != Turn::Mouse {
+                break;
+            }
+
+            let Some(to) = choose_mouse_move(&cur) else {
+                cur.status = GameStatus::TrapperWon;
+                break;
+            };
+
+            let before = cur.clone();
+
+            match apply_action(cur, Action::MoveMouse { to }) {
+                Ok(next) => {
+                    cur = next;
+                }
+                Err(_) => {
+                    cur = before;
+                    cur.status = GameStatus::TrapperWon;
+                    break;
+                }
+            }
+        }
+
+        cur
+    };
+
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             RoomCmd::Join {
@@ -157,21 +186,21 @@ async fn room_loop(
                     &mouse,
                 );
 
-                if trapper.is_some() && mouse.is_some() && !started {
+                let should_start_pvp = !vs_bot && trapper.is_some() && mouse.is_some();
+                let should_start_bot = vs_bot && trapper.is_some();
+
+                if (should_start_pvp || should_start_bot) && !started {
                     started = true;
 
                     let seed = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .map(|d| d.as_nanos() as u64)
-                        .unwrap_or_else(|_| {
-                            0x9E3779B97F4A7C15
-                        });
+                        .unwrap_or_else(|_| 0x9E3779B97F4A7C15);
 
                     let gs = make_initial_state(radius, initial_blocks, seed);
                     state = Some(gs.clone());
 
                     update_snapshot(&trapper, &mouse, started);
-
                     if let Some(t) = trapper.as_ref() {
                         let _ = t.tx.send(ServerMsg::GameStart {
                             state: gs.clone(),
@@ -184,10 +213,22 @@ async fn room_loop(
                             your_role: Turn::Mouse,
                         });
                     }
+
+                    if vs_bot && gs.turn == Turn::Mouse && gs.status == GameStatus::Running {
+                        let after_bot = run_bot_if_needed(gs);
+                        state = Some(after_bot.clone());
+                        broadcast(ServerMsg::GameUpdate { state: after_bot }, &trapper, &mouse);
+                    }
                 }
             }
 
             RoomCmd::Leave { client_id } => {
+                let was_started = started;
+
+                let running_game = state
+                    .as_ref()
+                    .is_some_and(|gs| gs.status == GameStatus::Running);
+
                 let mut changed = false;
 
                 if trapper.as_ref().is_some_and(|p| p.id == client_id) {
@@ -199,23 +240,45 @@ async fn room_loop(
                     changed = true;
                 }
 
-                if changed {
-                    started = false;
-                    state = None;
-
-                    update_snapshot(&trapper, &mouse, started);
-
-                    let players = (trapper.is_some() as u8) + (mouse.is_some() as u8);
-                    broadcast(
-                        ServerMsg::LobbyState {
-                            room_id: room_id.clone(),
-                            players,
-                            vs_bot,
-                        },
-                        &trapper,
-                        &mouse,
-                    );
+                if !changed {
+                    continue;
                 }
+
+                if was_started && running_game {
+                    let msg = ServerMsg::Error {
+                        message: "Opponent left mid-game".to_string(),
+                    };
+
+                    if let Some(p) = trapper.as_ref().filter(|p| p.id != client_id) {
+                        let _ = p.tx.send(msg.clone());
+                    }
+                    if let Some(p) = mouse.as_ref().filter(|p| p.id != client_id) {
+                        let _ = p.tx.send(msg.clone());
+                    }
+
+                    trapper = None;
+                    mouse = None;
+                    started = false;
+                    let _ = state.take();
+                    update_snapshot(&trapper, &mouse, started);
+                    break;
+                }
+
+                started = false;
+                state = None;
+
+                update_snapshot(&trapper, &mouse, started);
+
+                let players = (trapper.is_some() as u8) + (mouse.is_some() as u8);
+                broadcast(
+                    ServerMsg::LobbyState {
+                        room_id: room_id.clone(),
+                        players,
+                        vs_bot,
+                    },
+                    &trapper,
+                    &mouse,
+                );
             }
 
             RoomCmd::Action { client_id, action } => {
@@ -232,9 +295,16 @@ async fn room_loop(
                 };
 
                 let gs = gs_ref.clone();
+
                 let allowed = match gs.turn {
                     Turn::Trapper => trapper.as_ref().is_some_and(|p| p.id == client_id),
-                    Turn::Mouse => mouse.as_ref().is_some_and(|p| p.id == client_id),
+                    Turn::Mouse => {
+                        if vs_bot {
+                            false
+                        } else {
+                            mouse.as_ref().is_some_and(|p| p.id == client_id)
+                        }
+                    }
                 };
 
                 if !allowed {
@@ -254,10 +324,30 @@ async fn room_loop(
                         state = Some(new_state.clone());
 
                         broadcast(
-                            ServerMsg::GameUpdate { state: new_state },
+                            ServerMsg::GameUpdate {
+                                state: new_state.clone(),
+                            },
                             &trapper,
                             &mouse,
                         );
+
+                        if new_state.status != GameStatus::Running {
+                            trapper = None;
+                            mouse = None;
+                            started = false;
+                            let _ = state.take();
+                            update_snapshot(&trapper, &mouse, started);
+                            break;
+                        }
+
+                        if vs_bot
+                            && new_state.status == GameStatus::Running
+                            && new_state.turn == Turn::Mouse
+                        {
+                            let after_bot = run_bot_if_needed(new_state);
+                            state = Some(after_bot.clone());
+                            broadcast(ServerMsg::GameUpdate { state: after_bot }, &trapper, &mouse);
+                        }
                     }
                     Err(e) => {
                         send_to(

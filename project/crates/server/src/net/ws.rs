@@ -1,7 +1,5 @@
-use axum::
-{
-    extract::
-    {
+use axum::{
+    extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
@@ -16,13 +14,11 @@ use shared::net::{ClientMsg, ServerMsg};
 
 use crate::app::AppState;
 
-pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse
-{
+pub async fn ws_handler(State(state): State<AppState>, ws: WebSocketUpgrade) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(state, socket))
 }
 
-async fn handle_socket(state: AppState, socket: WebSocket)
-{
+async fn handle_socket(state: AppState, socket: WebSocket) {
     let client_id = Uuid::new_v4();
 
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<ServerMsg>();
@@ -125,7 +121,6 @@ async fn handle_socket(state: AppState, socket: WebSocket)
             _ => {}
         }
     }
-
 
     if let Some(r) = current_room {
         let _ = state.manager.leave_room(&r, client_id).await;
