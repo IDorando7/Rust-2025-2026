@@ -28,6 +28,7 @@ impl RoomManager {
             .values()
             .map(|h| {
                 let snap = h.snapshot_rx.borrow().clone();
+                let _ = snap.started;
                 RoomInfo {
                     room_id: h.room_id.clone(),
                     name: h.name.clone(),

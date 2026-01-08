@@ -11,7 +11,6 @@ use shared::rules::apply_action;
 use shared::types::{Action, BoardConfig, Coord, GameState, GameStatus, Turn};
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct RoomSnapshot {
     pub players: u8,
     pub started: bool,
