@@ -145,32 +145,32 @@ impl HexBoard {
         let w = (max_x - min_x) + pad * 2.0;
         let h = (max_y - min_y) + pad * 2.0;
 
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::click());
         let painter = ui.painter_at(rect);
 
         let visuals = ui.visuals().clone();
 
-        let click_pos = ui.input(|i| {
-            if i.pointer.primary_clicked() {
-                i.pointer.interact_pos()
-            } else {
-                None
-            }
-        });
-
-        let hover_pos = ui.input(|i| i.pointer.hover_pos());
+        let hover_pos = response.hover_pos();
+        let click_pos = if response.clicked() {
+            response.interact_pointer_pos()
+        } else {
+            None
+        };
 
         let center_model_x = (min_x + max_x) * 0.5;
         let center_model_y = (min_y + max_y) * 0.5;
         let origin = rect.center() - egui::vec2(center_model_x, center_model_y);
 
-        let mut clicked_cell: Option<Coord> = None;
+        let hovered_cell = hover_pos.and_then(|hp| pick_cell(hp, origin, size, gs.cfg.radius));
+        let clicked_cell = click_pos
+            .and_then(|cp| pick_cell(cp, origin, size, gs.cfg.radius))
+            .filter(|&c| policy.is_clickable(c));
 
         for &c in &coords {
             let center = axial_to_pixel(c, size) + origin.to_vec2();
             let poly = hex_polygon(center, size);
 
-            let is_hover = hover_pos.is_some_and(|hp| point_in_poly(hp, &poly));
+            let is_hover = hovered_cell == Some(c);
             let is_clickable = policy.is_clickable(c);
 
             let mut fill = visuals.widgets.inactive.bg_fill;
@@ -197,14 +197,6 @@ impl HexBoard {
             }
 
             painter.add(egui::Shape::convex_polygon(poly.to_vec(), fill, stroke));
-
-            if clicked_cell.is_none() {
-                if let Some(cp) = click_pos {
-                    if point_in_poly(cp, &poly) && is_clickable {
-                        clicked_cell = Some(c);
-                    }
-                }
-            }
         }
 
         clicked_cell
@@ -246,21 +238,77 @@ fn hex_polygon(center: egui::Pos2, size: f32) -> [egui::Pos2; 6] {
 }
 
 fn point_in_poly(p: egui::Pos2, poly: &[egui::Pos2; 6]) -> bool {
-    let mut inside = false;
-    let mut j = poly.len() - 1;
+    let eps = 1e-5;
+    let mut has_pos = false;
+    let mut has_neg = false;
 
-    for i in 0..poly.len() {
-        let pi = poly[i];
-        let pj = poly[j];
-
-        let intersect = ((pi.y > p.y) != (pj.y > p.y))
-            && (p.x < (pj.x - pi.x) * (p.y - pi.y) / ((pj.y - pi.y).max(1e-6)) + pi.x);
-
-        if intersect {
-            inside = !inside;
+    let mut prev = poly[poly.len() - 1];
+    for &cur in poly.iter() {
+        let cross = (cur.x - prev.x) * (p.y - prev.y) - (cur.y - prev.y) * (p.x - prev.x);
+        if cross > eps {
+            has_pos = true;
+        } else if cross < -eps {
+            has_neg = true;
         }
-        j = i;
+        if has_pos && has_neg {
+            return false;
+        }
+        prev = cur;
     }
 
-    inside
+    true
+}
+
+fn pick_cell(pos: egui::Pos2, origin: egui::Pos2, size: f32, radius: i32) -> Option<Coord> {
+    let (qf, rf) = pixel_to_axial(pos, origin, size);
+    let c = axial_round(qf, rf);
+
+    if !inside_board(c, radius) {
+        return None;
+    }
+
+    let center = axial_to_pixel(c, size) + origin.to_vec2();
+    let poly = hex_polygon(center, size);
+    if point_in_poly(pos, &poly) {
+        Some(c)
+    } else {
+        None
+    }
+}
+
+fn pixel_to_axial(p: egui::Pos2, origin: egui::Pos2, size: f32) -> (f32, f32) {
+    const SQRT_3: f32 = 1.732_050_8;
+
+    let x = (p.x - origin.x) / size;
+    let y = (p.y - origin.y) / size;
+
+    let r = (2.0 / 3.0) * y;
+    let q = (x / SQRT_3) - 0.5 * r;
+
+    (q, r)
+}
+
+fn axial_round(q: f32, r: f32) -> Coord {
+    let x = q;
+    let z = r;
+    let y = -x - z;
+
+    let mut rx = x.round();
+    let ry = y.round();
+    let mut rz = z.round();
+
+    let dx = (rx - x).abs();
+    let dy = (ry - y).abs();
+    let dz = (rz - z).abs();
+
+    if dx > dy && dx > dz {
+        rx = -ry - rz;
+    } else if dy <= dz {
+        rz = -rx - ry;
+    }
+
+    Coord {
+        q: rx as i32,
+        r: rz as i32,
+    }
 }
